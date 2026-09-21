@@ -29,6 +29,7 @@ Follow the requested:
 
 Do not generate duplicate or near-duplicate questions.
 Ensure the final marks exactly match the requested total.
+Ensure valid JSON: All backslashes in mathematical formulas, LaTeX expressions, regular expressions (e.g., \\d, \\s, \\w), or programming tokens (e.g. \\n, \\t, \\0) MUST be properly double-escaped as \\\\ so that the response parses cleanly as standard RFC 8259 JSON.
 Return ONLY valid, structured JSON matching the required schema. Do not enclose in markdown formatting or backticks if possible, or provide raw JSON that can be parsed directly.
 """
 

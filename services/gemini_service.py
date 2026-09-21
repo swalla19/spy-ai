@@ -76,6 +76,78 @@ class GeminiService:
 
         return cleaned
 
+    @staticmethod
+    def repair_json_escapes(s: str) -> str:
+        """Repairs unescaped backslashes and invalid escape sequences inside JSON string literals."""
+        res = []
+        in_string = False
+        i = 0
+        n = len(s)
+
+        while i < n:
+            c = s[i]
+            if not in_string:
+                if c == '"':
+                    in_string = True
+                res.append(c)
+                i += 1
+            else:
+                if c == '"':
+                    in_string = False
+                    res.append(c)
+                    i += 1
+                elif c == '\\':
+                    if i + 1 < n:
+                        next_c = s[i + 1]
+                        # Valid standard JSON escape sequences
+                        if next_c in ['"', '\\', '/', 'b', 'f', 'n', 'r', 't']:
+                            res.append(c)
+                            res.append(next_c)
+                            i += 2
+                        elif next_c == 'u' and i + 5 < n and all(ch in '0123456789abcdefABCDEF' for ch in s[i+2:i+6]):
+                            res.append(s[i:i+6])
+                            i += 6
+                        else:
+                            # Invalid escape (e.g. \d, \s, \w, \e, \0, \alpha, etc.) -> double escape it
+                            res.append('\\\\')
+                            i += 1
+                    else:
+                        res.append('\\\\')
+                        i += 1
+                else:
+                    res.append(c)
+                    i += 1
+
+        return "".join(res)
+
+    def parse_json(self, text: str) -> Dict[str, Any]:
+        """Parses JSON text with multiple fallback recovery strategies."""
+        if not text:
+            raise ValueError("Gemini returned an empty response.")
+
+        # 1. Direct parse with strict=False (handles unescaped control chars like tabs/newlines)
+        try:
+            return json.loads(text, strict=False)
+        except Exception:
+            pass
+
+        # 2. Repair invalid backslash escapes (e.g. \d, \s, LaTeX math \alpha, etc.)
+        repaired = self.repair_json_escapes(text)
+        try:
+            return json.loads(repaired, strict=False)
+        except Exception:
+            pass
+
+        # 3. Clean any trailing commas before closing braces or brackets
+        cleaned_trailing = re.sub(r',\s*([}\]])', r'\1', repaired)
+        try:
+            return json.loads(cleaned_trailing, strict=False)
+        except Exception:
+            pass
+
+        # Final attempt: let json.loads throw standard exception if unparseable
+        return json.loads(text, strict=False)
+
     def generate_json(
         self,
         prompt: str,
@@ -117,10 +189,7 @@ class GeminiService:
                     raw_text = response.text or ""
                     cleaned = self.clean_json_string(raw_text)
 
-                    if not cleaned:
-                        raise ValueError("Gemini returned an empty response.")
-
-                    parsed = json.loads(cleaned)
+                    parsed = self.parse_json(cleaned)
                     return parsed
 
                 except ClientError as e:
@@ -146,8 +215,12 @@ class GeminiService:
                     time.sleep(wait_sec)
                     continue
 
-                except json.JSONDecodeError as e:
-                    raise ValueError(f"Failed to parse JSON from Gemini response: {e}\nRaw output: {raw_text[:300]}") from e
+                except (json.JSONDecodeError, ValueError) as e:
+                    last_error = e
+                    if attempt >= max_retries - 1:
+                        break
+                    time.sleep(1)
+                    continue
 
                 except Exception as e:
                     last_error = e
