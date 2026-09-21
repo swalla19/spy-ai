@@ -925,7 +925,7 @@ with gr.Blocks(title="AI Exam Paper Generator") as demo:
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "7860"))
     demo.launch(
-        server_name="127.0.0.1",
+        server_name="0.0.0.0",
         server_port=port,
         share=False,
         theme=gr.themes.Soft(primary_hue="blue"),
